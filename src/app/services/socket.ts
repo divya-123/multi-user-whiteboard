@@ -32,3 +32,27 @@ export const initializeSocket = (): Socket => {
 export const getSocket = (): Socket | null => {
   return socket;
 };
+
+export const createSession = (): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const currentSocket = getSocket();
+    if (!currentSocket) {
+      reject(new Error("Socket not initialized"));
+      return;
+    }
+
+    currentSocket.emit("createSession");
+    currentSocket.once("sessionCreated", (sessionId: string) => {
+      resolve(sessionId);
+    });
+  });
+};
+
+export const joinSession = (sessionId: string): void => {
+  const currentSocket = getSocket();
+  if (!currentSocket) {
+    throw new Error("Socket not initialized");
+  }
+
+  currentSocket.emit("joinSession", sessionId);
+};

@@ -19,38 +19,59 @@ const io = new Server(server, {
   }
 });
 
-const users = new Map();
+const sessions = new Map();
 
 io.on('connection', (socket) => {
   console.log('A user connected');
 
-  if (users.size >= 60) {
-    socket.emit('error', 'Server is full');
-    socket.disconnect(true);
-    return;
-  }
-
-  const userId = randomUUID();
-  const user = { id: userId, name: `User ${users.size + 1}` };
-  users.set(userId, user);
-
-  socket.emit('userId', userId);
-  io.emit('updateUsers', Array.from(users.values()));
-
-  socket.on('draw', (data) => {
-    socket.broadcast.emit('draw', data);
+  socket.on('createSession', () => {
+    const sessionId = randomUUID();
+    sessions.set(sessionId, { users: new Map(), drawings: [] });
+    socket.emit('sessionCreated', sessionId);
   });
 
-  socket.on('updateBrush', (brush) => {
-    const updatedUser = { ...users.get(userId), brush };
-    users.set(userId, updatedUser);
-    socket.broadcast.emit('updateBrush', { userId, brush });
-  });
+  socket.on('joinSession', (sessionId) => {
+    if (!sessions.has(sessionId)) {
+      socket.emit('error', 'Session not found');
+      return;
+    }
 
-  socket.on('disconnect', () => {
-    console.log('User disconnected');
-    users.delete(userId);
-    io.emit('updateUsers', Array.from(users.values()));
+    const session = sessions.get(sessionId);
+    if (session.users.size >= 60) {
+      socket.emit('error', 'Session is full');
+      return;
+    }
+
+    const userId = randomUUID();
+    const user = { id: userId, name: `User ${session.users.size + 1}` };
+    session.users.set(userId, user);
+
+    socket.join(sessionId);
+    socket.emit('userId', userId);
+    io.to(sessionId).emit('updateUsers', Array.from(session.users.values()));
+
+    // Send existing drawings to the new user
+    socket.emit('initDrawings', session.drawings);
+
+    socket.on('draw', (data) => {
+      session.drawings.push(data);
+      socket.to(sessionId).emit('draw', data);
+    });
+
+    socket.on('updateBrush', (brush) => {
+      const updatedUser = { ...session.users.get(userId), brush };
+      session.users.set(userId, updatedUser);
+      socket.to(sessionId).emit('updateBrush', { userId, brush });
+    });
+
+    socket.on('disconnect', () => {
+      console.log('User disconnected');
+      session.users.delete(userId);
+      io.to(sessionId).emit('updateUsers', Array.from(session.users.values()));
+      if (session.users.size === 0) {
+        sessions.delete(sessionId);
+      }
+    });
   });
 });
 
